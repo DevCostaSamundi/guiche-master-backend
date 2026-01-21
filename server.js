@@ -447,7 +447,8 @@ app.use((err, req, res, next) => {
 // INICIAR SERVIDOR
 // ═══════════════════════════════════════════════════════════════════
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.VERCEL !== '1') {
+  // Apenas roda localmente
   const server = app.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
@@ -475,4 +476,5 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
+// Exportar para Vercel
 module.exports = app;
