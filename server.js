@@ -20,10 +20,10 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: function(origin, callback) {
+  origin: function (origin, callback) {
     // Permite requisições sem origin (como Postman, curl)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -46,11 +46,11 @@ app.use((req, res, next) => {
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-  
+
   next();
 });
 
@@ -96,8 +96,8 @@ function generateOrderCode() {
 // ═══════════════════════════════════════════════════════════════════
 
 app.get('/', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     message: 'Backend Guichê Master - API funcionando!',
     timestamp: new Date().toISOString(),
     endpoints: {
@@ -110,8 +110,8 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     message: 'Backend rodando!',
     pixKeysCount: pixKeys.filter(k => k.active).length,
     ordersCount: orders.length,
@@ -149,7 +149,7 @@ app.post('/api/payment', async (req, res) => {
     }
 
     const pixKey = getRandomPixKey();
-    
+
     if (!pixKey) {
       return res.status(500).json({
         success: false,
@@ -220,7 +220,7 @@ app.post('/api/payment/:orderId/confirm', async (req, res) => {
   try {
     const { orderId } = req.params;
     const order = orders.find(o => o.id === orderId || o.code === orderId);
-    
+
     if (!order) {
       return res.status(404).json({
         success: false,
@@ -257,7 +257,7 @@ app.get('/api/order/:orderId', async (req, res) => {
   try {
     const { orderId } = req.params;
     const order = orders.find(o => o.id === orderId || o.code === orderId);
-    
+
     if (!order) {
       return res.status(404).json({
         success: false,
@@ -361,7 +361,7 @@ app.put('/api/admin/pix-keys/:id', (req, res) => {
     const { key, type, name, active } = req.body;
 
     const keyIndex = pixKeys.findIndex(k => k.id === id);
-    
+
     if (keyIndex === -1) {
       return res.status(404).json({
         success: false,
@@ -393,7 +393,7 @@ app.delete('/api/admin/pix-keys/:id', (req, res) => {
   try {
     const { id } = req.params;
     const keyIndex = pixKeys.findIndex(k => k.id === id);
-    
+
     if (keyIndex === -1) {
       return res.status(404).json({
         success: false,
@@ -430,6 +430,263 @@ app.get('/api/admin/orders', (req, res) => {
     })),
     total: orders.length
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ANALYTICS DATABASE
+// ═══════════════════════════════════════════════════════════════════
+
+let analytics = {
+  pageViews: [],
+  events: {},
+  sessions: [],
+  conversions: []
+};
+
+// Estatísticas por evento
+function initEventAnalytics(eventId) {
+  if (!analytics.events[eventId]) {
+    analytics.events[eventId] = {
+      views: 0,
+      uniqueViews: new Set(),
+      clicks: {
+        ingressos: 0,
+        info: 0,
+        local: 0,
+        pdv: 0,
+        checkout: 0
+      },
+      ticketSelections: [],
+      checkouts: 0,
+      conversions: 0,
+      totalRevenue: 0
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ANALYTICS ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════
+
+// Track Page View
+app.post('/api/analytics/pageview', (req, res) => {
+  try {
+    const { page, eventId, sessionId, referrer } = req.body;
+
+    const pageView = {
+      id: uuidv4(),
+      page,
+      eventId,
+      sessionId,
+      referrer,
+      userAgent: req.headers['user-agent'],
+      ip: req.ip || req.connection.remoteAddress,
+      timestamp: new Date().toISOString()
+    };
+
+    analytics.pageViews.push(pageView);
+
+    if (eventId) {
+      initEventAnalytics(eventId);
+      analytics.events[eventId].views++;
+      analytics.events[eventId].uniqueViews.add(sessionId);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Analytics error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Track Click Event
+app.post('/api/analytics/click', (req, res) => {
+  try {
+    const { eventId, action, sessionId, data } = req.body;
+
+    if (eventId) {
+      initEventAnalytics(eventId);
+
+      if (analytics.events[eventId].clicks[action] !== undefined) {
+        analytics.events[eventId].clicks[action]++;
+      }
+
+      if (action === 'ticket_select') {
+        analytics.events[eventId].ticketSelections.push({
+          sessionId,
+          ...data,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Track Checkout Started
+app.post('/api/analytics/checkout', (req, res) => {
+  try {
+    const { eventId, sessionId, items, total } = req.body;
+
+    if (eventId) {
+      initEventAnalytics(eventId);
+      analytics.events[eventId].checkouts++;
+    }
+
+    analytics.conversions.push({
+      id: uuidv4(),
+      eventId,
+      sessionId,
+      items,
+      total,
+      status: 'started',
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Track Conversion (Payment Completed)
+app.post('/api/analytics/conversion', (req, res) => {
+  try {
+    const { eventId, orderId, sessionId, total } = req.body;
+
+    if (eventId) {
+      initEventAnalytics(eventId);
+      analytics.events[eventId].conversions++;
+      analytics.events[eventId].totalRevenue += total;
+    }
+
+    const conversion = analytics.conversions.find(c =>
+      c.sessionId === sessionId && c.status === 'started'
+    );
+
+    if (conversion) {
+      conversion.status = 'completed';
+      conversion.orderId = orderId;
+      conversion.completedAt = new Date().toISOString();
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ANALYTICS DASHBOARD - Protected by Secret Key
+// ═══════════════════════════════════════════════════════════════════
+
+const ANALYTICS_SECRET = process.env.ANALYTICS_SECRET || 'guiche2024@analytics';
+
+app.get('/api/analytics/dashboard', (req, res) => {
+  try {
+    const { key } = req.query;
+
+    if (key !== ANALYTICS_SECRET) {
+      return res.status(401).json({
+        success: false,
+        error: 'Chave de acesso inválida'
+      });
+    }
+
+    // Calcular estatísticas gerais
+    const totalPageViews = analytics.pageViews.length;
+    const uniqueSessions = new Set(analytics.pageViews.map(pv => pv.sessionId)).size;
+    const totalCheckouts = analytics.conversions.filter(c => c.status === 'started').length;
+    const totalConversions = analytics.conversions.filter(c => c.status === 'completed').length;
+    const conversionRate = totalCheckouts > 0
+      ? ((totalConversions / totalCheckouts) * 100).toFixed(2)
+      : 0;
+
+    // Estatísticas por evento
+    const eventStats = Object.entries(analytics.events).map(([eventId, data]) => ({
+      eventId,
+      views: data.views,
+      uniqueViews: data.uniqueViews.size,
+      clicks: data.clicks,
+      checkouts: data.checkouts,
+      conversions: data.conversions,
+      revenue: data.totalRevenue,
+      conversionRate: data.checkouts > 0
+        ? ((data.conversions / data.checkouts) * 100).toFixed(2)
+        : 0
+    }));
+
+    // Top páginas
+    const pageViewsByPage = analytics.pageViews.reduce((acc, pv) => {
+      acc[pv.page] = (acc[pv.page] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Últimas conversões
+    const recentConversions = analytics.conversions
+      .filter(c => c.status === 'completed')
+      .slice(-10)
+      .reverse();
+
+    // Tráfego por hora (últimas 24h)
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const trafficByHour = Array.from({ length: 24 }, (_, i) => {
+      const hour = new Date(now.getTime() - i * 60 * 60 * 1000).getHours();
+      const count = analytics.pageViews.filter(pv => {
+        const pvDate = new Date(pv.timestamp);
+        return pvDate > last24h && pvDate.getHours() === hour;
+      }).length;
+
+      return { hour, views: count };
+    }).reverse();
+
+    res.json({
+      success: true,
+      summary: {
+        totalPageViews,
+        uniqueSessions,
+        totalOrders: orders.length,
+        totalCheckouts,
+        totalConversions,
+        conversionRate: `${conversionRate}%`,
+        totalRevenue: analytics.conversions
+          .filter(c => c.status === 'completed')
+          .reduce((sum, c) => sum + c.total, 0)
+      },
+      events: eventStats,
+      pages: pageViewsByPage,
+      recentConversions,
+      trafficByHour,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Reset Analytics (apenas para testes)
+app.post('/api/analytics/reset', (req, res) => {
+  const { key } = req.body;
+
+  if (key !== ANALYTICS_SECRET) {
+    return res.status(401).json({ success: false, error: 'Não autorizado' });
+  }
+
+  analytics = {
+    pageViews: [],
+    events: {},
+    sessions: [],
+    conversions: []
+  };
+
+  res.json({ success: true, message: 'Analytics resetado' });
 });
 
 // ═══════════════════════════════════════════════════════════════════
