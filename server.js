@@ -185,8 +185,9 @@ app.post('/api/payment', async (req, res) => {
 
     orders.push(order);
 
-    console.log('✅ Pedido criado:', order.code);
+    //console.log('✅ Pedido criado:', order.code);
 
+    // ⚠️ IMPORTANTE: Retorna dados sem expor chave completa nos logs
     res.json({
       success: true,
       order: {
@@ -199,7 +200,7 @@ app.post('/api/payment', async (req, res) => {
         key: pixKey.key,
         type: pixKey.type,
         name: pixKey.name,
-        qrcode: pixKey.key
+        // Não incluir qrcode aqui, ou incluir apenas para geração de QR Code
       },
       total: order.total,
       message: 'Copie a chave PIX e faça o pagamento'
