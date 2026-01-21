@@ -16,6 +16,7 @@ const PORT = process.env.PORT || 3001;
 // ═══════════════════════════════════════════════════════════════════
 const allowedOrigins = [
   'https://guiche-master-frontend.vercel.app',
+  'http://localhost:5173',
 ];
 
 app.use(cors({
